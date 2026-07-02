@@ -4,22 +4,26 @@ import { useState } from "react";
 import { toast } from "sonner";
 import axios from "axios";
 import { BACKEND_URL } from "@/config";
+import { useNavigate } from "react-router";
 
 const Form = () => {
   const [github, setGithub] = useState("");
-  const [linkedIn, setLinkedIn] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const onSubmit = async () => {
-    if (!github || !linkedIn) {
+    if (!github) {
       // todo: add more validation here
       toast("Please provide valid github and linkedin urls");
       return;
     }
 
+    setLoading(true);
     const res = await axios.post(`${BACKEND_URL}/api/v1/pre-interview`, {
-      linkedIn,
       github,
     });
+
+    navigate(`/interview/${res.data.id}`);
   };
 
   return (
@@ -36,18 +40,14 @@ const Form = () => {
         </h2>
         <div className="p-4">
           <Input
-            placeholder="LinkedIn URL"
-            onChange={(e) => setLinkedIn(e.target.value)}
-          />
-        </div>
-        <div className="p-4">
-          <Input
             placeholder="Github URL"
             onChange={(e) => setGithub(e.target.value)}
           />
         </div>
         <div className="flex justify-center p-4">
-          <Button type="submit">Start Interview</Button>
+          <Button disabled={loading} type="submit">
+            {loading ? "Starting inteview..." : "Start Interview"}
+          </Button>
         </div>
       </div>
     </form>

@@ -1,9 +1,12 @@
 import express from "express";
-import axios from "axios";
 import { PreInterviewBody } from "./types";
+import { scrapeGithub } from "./scrapers/github";
+import cors from "cors";
+import { prisma } from "./db";
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
 app.post("/api/v1/pre-interview", async (req, res) => {
   const { success, data } = PreInterviewBody.safeParse(req.body);
@@ -19,24 +22,21 @@ app.post("/api/v1/pre-interview", async (req, res) => {
   const githubUrl = data.github.endsWith("/")
     ? data.github.slice(0, -1)
     : data.github;
-  const linkedInUrl = data.linkedIn.endsWith("/")
-    ? data.linkedIn.slice(0, -1)
-    : data.linkedIn;
 
-  const githubUsername = githubUrl.split("/").pop();
-  const linkedInUsername = linkedInUrl.split("/").pop();
+  const githubUsername = githubUrl.split("/").pop() ?? "";
 
-  const userRepos = await axios.get(
-    `https://api.github.com/users/${githubUsername}/repos`,
-  );
-  const filteredUserRepos = userRepos.data.map((x: any) => ({
-    description: x.description,
-    name: x.name,
-    fullName: x.full_name,
-    starCount: x.stargazers_count,
-  }));
+  const githubData = await scrapeGithub(githubUsername);
 
-  console.log(filteredUserRepos)
+  const interview = await prisma.interview.create({
+    data: {
+      githubMetadata: JSON.stringify(githubData),
+      status: "PRE",
+    },
+  });
+
+  res.status(200).json({
+    id: interview.id,
+  });
 });
 
 app.listen(3001);

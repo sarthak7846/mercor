@@ -3,18 +3,21 @@ import "../styles/globals.css";
 import Form from "./components/Form";
 import Interview from "./components/Interview";
 import Result from "./components/Result";
+import { BrowserRouter, Route, Routes } from "react-router";
 import { Toaster } from "sonner";
 
 export function App() {
   const [page, setPage] = useState<"form" | "interview" | "result">("form");
 
   return (
-    <div>
-      {page === "form" && <Form />}
-      {page === "interview" && <Interview />}
-      {page === "result" && <Result />}
-      <Toaster/>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Form />} />
+        <Route path="/interview/:id" element={<Interview />} />
+        <Route path="/result/:id" element={<Result />} />
+      </Routes>
+      <Toaster position="bottom-left"/>
+    </BrowserRouter>
   );
 }
 
