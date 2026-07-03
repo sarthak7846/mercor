@@ -1,4 +1,5 @@
 import { BACKEND_URL } from "@/config";
+import axios from "axios";
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router";
 
@@ -22,7 +23,32 @@ const Interview = () => {
       const ms = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-      console.log('tracks',ms.getTracks())
+      const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
+        "token",
+        "a222211bf6460ee9d3017e6c855c7d412998177a",
+      ]);
+
+      socket.onopen = () => {
+        const mediaRecorder = new MediaRecorder(ms, { mimeType: "audio/webm" });
+        mediaRecorder.start(250);
+
+        mediaRecorder.addEventListener("dataavailable", (event) => {
+          socket.send(event.data);
+        });
+      };
+
+      socket.onmessage = (message) => {
+        // console.log("message", message);
+        const data = JSON.parse(message.data);
+        const transcript = data.channel.alternatives[0].transcript;
+
+        if (transcript) {
+          console.log("transcript", transcript);
+          axios.post(`${BACKEND_URL}/api/v1/session/${interviewId}/message`, {
+            message: transcript,
+          });
+        }
+      };
 
       pc.addTrack(ms.getTracks()[0]!);
 
@@ -32,15 +58,18 @@ const Interview = () => {
       // Start the session using the Session Description Protocol (SDP)
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      console.log("hi");
-      const sdpResponse = await fetch(`${BACKEND_URL}/api/v1/session/${interviewId}`, {
-        method: "POST",
-        body: offer.sdp,
-        headers: {
-          "Content-Type": "application/sdp",
+
+      const sdpResponse = await fetch(
+        `${BACKEND_URL}/api/v1/session/${interviewId}`,
+        {
+          method: "POST",
+          body: offer.sdp,
+          headers: {
+            "Content-Type": "application/sdp",
+          },
         },
-      });
-      console.log("hello");
+      );
+
       const answer = {
         type: "answer",
         sdp: await sdpResponse.text(),

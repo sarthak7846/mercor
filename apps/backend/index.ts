@@ -55,14 +55,17 @@ app.post("/api/v1/session/:interviewId", async (req, res) => {
   fd.set("session", sessionConfig);
 
   try {
-    const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        "OpenAI-Safety-Identifier": "hashed-user-id",
+    const sdpResponse = await fetch(
+      "https://api.openai.com/v1/realtime/calls",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+          "OpenAI-Safety-Identifier": "hashed-user-id",
+        },
+        body: fd,
       },
-      body: fd,
-    });
+    );
 
     // Location: /v1/realtime/calls/rtc_123456
     const location = sdpResponse.headers.get("Location");
@@ -72,11 +75,25 @@ app.post("/api/v1/session/:interviewId", async (req, res) => {
     // Send back the SDP we received from the OpenAI REST API
     const sdp = await sdpResponse.text();
     res.send(sdp);
-    initSideband(callId!, req.params.interviewId)
+    initSideband(callId!, req.params.interviewId);
   } catch (error) {
     console.error("Token generation error:", error);
     res.status(500).json({ error: "Failed to generate token" });
   }
+});
+
+app.post("/api/v1/session/:interviewId/message", async (req, res) => {
+  const interviewId = req.params.interviewId;
+  const message = req.body.message;
+  await prisma.message.create({
+    data: {
+      message,
+      type: "USER",
+      interviewId,
+    },
+  });
+
+  res.json({message: 'Message sent'})
 });
 
 app.listen(3001);
