@@ -1,14 +1,11 @@
-import { useState } from "react";
 import "../styles/globals.css";
-import Form from "./components/Form";
-import Interview from "./components/Interview";
-import Result from "./components/Result";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { Toaster } from "sonner";
+import { Form } from "./components/Form";
+import { Interview } from "./components/Interview";
+import { Result } from "./components/Result";
 
 export function App() {
-  const [page, setPage] = useState<"form" | "interview" | "result">("form");
-
   return (
     <BrowserRouter>
       <Routes>
