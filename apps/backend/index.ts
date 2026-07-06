@@ -1,17 +1,76 @@
-import express from "express";
+import express, { type Request } from "express";
+import jwt from "jsonwebtoken";
 import { PreInterviewBody } from "./types";
 import { scrapeGithub } from "./scrapers/github";
 import cors from "cors";
 import { prisma } from "./db";
 import { initSideband } from "./sideband";
 import { calculateResult } from "./result";
+import { deepgramApiKey, jwtSecret } from "./config";
+import axios from "axios";
 
+const port = process.env.PORT;
 const app = express();
 app.use(express.json());
 app.use(cors());
 
 // Parse raw SDP payloads posted from the browser
 app.use(express.text({ type: ["application/sdp", "text/plain"] }));
+
+app.get("/", (req, res) => {
+  res.json({
+    message: "Server is up and running",
+  });
+});
+
+app.get("/api/deepgram-token", async (req: Request, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      res.status(401).json({
+        message: "Unauthorized",
+      });
+      return;
+    }
+
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : authHeader;
+    console.log("token", token);
+
+    const data = jwt.verify(token, jwtSecret!);
+
+    if (!data) {
+      res.status(401).json({
+        message: "Unauthorized",
+      });
+      return;
+    }
+
+    // Get deepgram key
+    const url = "https://api.deepgram.com/v1/auth/grant";
+
+    const response = await axios.post(
+      url,
+      {},
+      {
+        headers: {
+          Authorization: `Token ${deepgramApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    console.log(data);
+
+    res.status(200).json({
+      data: response.data,
+    });
+  } catch (error) {
+    console.log(error);
+    throw error;
+  }
+});
 
 app.post("/api/v1/pre-interview", async (req, res) => {
   const { success, data } = PreInterviewBody.safeParse(req.body);
@@ -39,8 +98,19 @@ app.post("/api/v1/pre-interview", async (req, res) => {
     },
   });
 
+  const accessToken = jwt.sign(
+    {
+      interviewId: interview.id,
+    },
+    jwtSecret!,
+    {
+      expiresIn: "1h",
+    },
+  );
+
   res.status(200).json({
     id: interview.id,
+    accessToken,
   });
 });
 
@@ -123,7 +193,7 @@ app.get("/api/v1/result/:interviewId", async (req, res) => {
       content: c.message,
       createdAt: c.createdAt,
     })),
-    status: interview.status
+    status: interview.status,
   });
 
   if (interview.status !== "DONE") {
@@ -141,4 +211,6 @@ app.get("/api/v1/result/:interviewId", async (req, res) => {
   }
 });
 
-app.listen(3001);
+app.listen(port, () => {
+  console.log(`Backend up on port ${port}`);
+});

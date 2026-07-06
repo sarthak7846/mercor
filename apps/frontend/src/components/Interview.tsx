@@ -50,8 +50,8 @@ export function Interview() {
     let cancelled = false;
 
     (async () => {
-      const pc = new RTCPeerConnection();
-      pcRef.current = pc;
+      // const pc = new RTCPeerConnection();
+      // pcRef.current = pc;
 
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
@@ -61,11 +61,11 @@ export function Interview() {
       // Play + meter the AI's audio.
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
-      pc.ontrack = (e) => {
-        const stream = e.streams[0]!;
-        audioEl.srcObject = stream;
-        aiMeter = createLevelMeter(audioCtx, stream);
-      };
+      // pc.ontrack = (e) => {
+      //   const stream = e.streams[0]!;
+      //   audioEl.srcObject = stream;
+      //   aiMeter = createLevelMeter(audioCtx, stream);
+      // };
 
       // Capture the user's microphone.
       const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -79,7 +79,7 @@ export function Interview() {
       // Stream the mic to Deepgram for live transcription.
       const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
         "token",
-        `${process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY}`,
+        `${import.meta.env.DEEPGRAM_API_KEY}`,
       ]);
       socketRef.current = socket;
 
@@ -102,28 +102,28 @@ export function Interview() {
         }
       };
 
-      pc.addTrack(ms.getTracks()[0]!);
+      // pc.addTrack(ms.getTracks()[0]!);
 
       // SDP handshake with the backend.
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      const sdpResponse = await fetch(
-        `${BACKEND_URL}/api/v1/session/${interviewId}`,
-        {
-          method: "POST",
-          body: offer.sdp,
-          headers: { "Content-Type": "application/sdp" },
-        },
-      );
-      const answer = { type: "answer" as const, sdp: await sdpResponse.text() };
-      await pc.setRemoteDescription(answer);
+      // const offer = await pc.createOffer();
+      // await pc.setLocalDescription(offer);
+      // const sdpResponse = await fetch(
+      //   `${BACKEND_URL}/api/v1/session/${interviewId}`,
+      //   {
+      //     method: "POST",
+      //     body: offer.sdp,
+      //     headers: { "Content-Type": "application/sdp" },
+      //   },
+      // );
+      // const answer = { type: "answer" as const, sdp: await sdpResponse.text() };
+      // await pc.setRemoteDescription(answer);
 
       if (cancelled) return;
       setStatus("live");
 
       // Single animation loop drives both volume meters.
       const tick = () => {
-        if (aiMeter) setAiLevel(aiMeter());
+        // if (aiMeter) setAiLevel(aiMeter());
         if (userMeter) setUserLevel(userMeter());
         rafRef.current = requestAnimationFrame(tick);
       };
