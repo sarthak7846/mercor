@@ -37,7 +37,6 @@ app.get("/api/deepgram-token", async (req: Request, res) => {
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
       : authHeader;
-    console.log("token", token);
 
     const data = jwt.verify(token, jwtSecret!);
 
@@ -48,7 +47,6 @@ app.get("/api/deepgram-token", async (req: Request, res) => {
       return;
     }
 
-    // Get deepgram key
     const url = "https://api.deepgram.com/v1/auth/grant";
 
     const response = await axios.post(
@@ -63,9 +61,7 @@ app.get("/api/deepgram-token", async (req: Request, res) => {
     );
     console.log(data);
 
-    res.status(200).json({
-      data: response.data,
-    });
+    res.status(200).json(response.data);
   } catch (error) {
     console.log(error);
     throw error;
@@ -156,13 +152,17 @@ app.post("/api/v1/session/:interviewId", async (req, res) => {
 app.post("/api/v1/session/:interviewId/message", async (req, res) => {
   const interviewId = req.params.interviewId;
   const message = req.body.message;
-  await prisma.message.create({
-    data: {
-      message,
-      type: "USER",
-      interviewId,
-    },
-  });
+
+  // Save message to db
+  // Send message to GPT and get response then convert TTS send the audio url back to fe
+
+  // await prisma.message.create({
+  //   data: {
+  //     message,
+  //     type: "USER",
+  //     interviewId,
+  //   },
+  // });
 
   res.json({ message: "Message sent" });
 });

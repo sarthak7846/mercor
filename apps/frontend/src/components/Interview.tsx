@@ -76,30 +76,58 @@ export function Interview() {
       userStreamRef.current = ms;
       userMeter = createLevelMeter(audioCtx, ms);
 
+      // Fetch the deepgram token from be
+      const interviewToken = sessionStorage.getItem("interviewToken");
+      const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token`, {
+        headers: {
+          Authorization: `Bearer ${interviewToken}`,
+        },
+      });
+
+      console.log("data", data);
+
       // Stream the mic to Deepgram for live transcription.
       const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
-        "token",
-        `${import.meta.env.DEEPGRAM_API_KEY}`,
+        "Bearer",
+        `${data.access_token}`,
       ]);
       socketRef.current = socket;
 
       socket.onopen = () => {
         const mediaRecorder = new MediaRecorder(ms, { mimeType: "audio/webm" });
         recorderRef.current = mediaRecorder;
-        mediaRecorder.start(250);
+        mediaRecorder.start(500);
         mediaRecorder.addEventListener("dataavailable", (event) => {
           if (socket.readyState === WebSocket.OPEN) socket.send(event.data);
         });
       };
 
-      socket.onmessage = (message) => {
-        const received = JSON.parse(message.data);
-        const transcript = received.channel?.alternatives[0]?.transcript;
-        if (transcript) {
-          axios.post(`${BACKEND_URL}/api/v1/session/${interviewId}/message`, {
-            message: transcript,
+      let buffer = "";
+      let silenceTimer: ReturnType<typeof setTimeout>;
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        const transcript = data.channel?.alternatives?.[0]?.transcript?.trim();
+
+        if (!transcript) return;
+
+        buffer += " " + transcript;
+
+        clearTimeout(silenceTimer);
+
+        silenceTimer = setTimeout(async () => {
+          console.log('sending trans to backned',buffer)
+          const res = await axios.post(`${BACKEND_URL}/api/v1/session/${interviewId}/message`, {
+            message: buffer.trim(),
           });
-        }
+
+          buffer = "";
+        }, 1500);
+      };
+
+      socket.onerror = (event) => {
+        console.error("error", event);
       };
 
       // pc.addTrack(ms.getTracks()[0]!);

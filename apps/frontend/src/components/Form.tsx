@@ -23,6 +23,7 @@ export function Form() {
             const response = await axios.post(`${BACKEND_URL}/api/v1/pre-interview`, {
                 github: github.trim(),
             });
+            sessionStorage.setItem('interviewToken', response.data.accessToken);
             navigate(`/interview/${response.data.id}`);
         } catch (e) {
             toast("Something went wrong starting your interview. Please try again.");
