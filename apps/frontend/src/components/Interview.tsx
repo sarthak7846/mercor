@@ -1,6 +1,6 @@
 import axios from "axios";
-import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { Bot, Loader2, PhoneOff, User } from "lucide-react";
 import { Button } from "./ui/button";
 import { BACKEND_URL } from "@/lib/config";
@@ -30,8 +30,35 @@ function createLevelMeter(ctx: AudioContext, stream: MediaStream) {
   };
 }
 
+function createLevelMeter2(source: AudioNode, playAudio: boolean) {
+  const analyser = source.context.createAnalyser();
+
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = 0.8;
+
+  source.connect(analyser);
+  if(playAudio) analyser.connect(source.context.destination);
+
+  const data = new Uint8Array(analyser.fftSize);
+
+  return () => {
+    analyser.getByteTimeDomainData(data);
+
+    let sum = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i]! - 128) / 128;
+      sum += v * v;
+    }
+
+    return Math.min(1, Math.sqrt(sum / data.length) * 3.2);
+  };
+}
+
 export function Interview() {
   const { interviewId } = useParams();
+  const location = useLocation();
+
   const navigate = useNavigate();
 
   const [status, setStatus] = useState<Status>("connecting");
@@ -45,118 +72,187 @@ export function Interview() {
   const userStreamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const setupUserContext = async (
+    audioCtx: AudioContext,
+    cancelled: boolean,
+  ) => {
+    // const pc = new RTCPeerConnection();
+    // pcRef.current = pc;
+
+    // const audioCtx = new AudioContext();
+    // audioCtxRef.current = audioCtx;
+    // let aiMeter: (() => number) | null = null;
+    // let userMeter: (() => number) | null = null;
+
+    // Play + meter the AI's audio.
+    // const audioEl = document.createElement("audio");
+    // audioEl.autoplay = true;
+    // pc.ontrack = (e) => {
+    //   const stream = e.streams[0]!;
+    //   audioEl.srcObject = stream;
+    //   aiMeter = createLevelMeter(audioCtx, stream);
+    // };
+
+    // Capture the user's microphone.
+    const userStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+    });
+    const userSource = audioCtx.createMediaStreamSource(userStream);
+    const userMeter = createLevelMeter2(userSource, false);
+    if (cancelled) {
+      userStream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    userStreamRef.current = userStream;
+    // userMeter = createLevelMeter(audioCtx, userStream);
+
+    // Fetch the deepgram token from be
+    const interviewToken = sessionStorage.getItem("interviewToken");
+    const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token`, {
+      headers: {
+        Authorization: `Bearer ${interviewToken}`,
+      },
+    });
+
+    console.log("data", data);
+
+    // Stream the mic to Deepgram for live transcription.
+    const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
+      "Bearer",
+      `${data.access_token}`,
+    ]);
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      const mediaRecorder = new MediaRecorder(userStream, { mimeType: "audio/webm" });
+      recorderRef.current = mediaRecorder;
+      mediaRecorder.start(500);
+      mediaRecorder.addEventListener("dataavailable", (event) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(event.data);
+      });
+    };
+
+    let buffer = "";
+    let silenceTimer: ReturnType<typeof setTimeout>;
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      const transcript = data.channel?.alternatives?.[0]?.transcript?.trim();
+
+      if (!transcript) return;
+
+      buffer += " " + transcript;
+
+      clearTimeout(silenceTimer);
+
+      silenceTimer = setTimeout(async () => {
+        console.log("sending trans to backned", buffer);
+        const res = await axios.post(
+          `${BACKEND_URL}/api/v1/session/${interviewId}/message`,
+          {
+            message: buffer.trim(),
+          },
+        );
+
+        buffer = "";
+      }, 1500);
+    };
+
+    socket.onerror = (event) => {
+      console.error("error", event);
+    };
+
+    // pc.addTrack(ms.getTracks()[0]!);
+
+    // SDP handshake with the backend.
+    // const offer = await pc.createOffer();
+    // await pc.setLocalDescription(offer);
+    // const sdpResponse = await fetch(
+    //   `${BACKEND_URL}/api/v1/session/${interviewId}`,
+    //   {
+    //     method: "POST",
+    //     body: offer.sdp,
+    //     headers: { "Content-Type": "application/sdp" },
+    //   },
+    // );
+    // const answer = { type: "answer" as const, sdp: await sdpResponse.text() };
+    // await pc.setRemoteDescription(answer);
+
+    // if (cancelled) return;
+    // setStatus("live");
+
+    // Single animation loop drives both volume meters.
+    // const tick = () => {
+    //   // if (aiMeter) setAiLevel(aiMeter());
+    //   if (userMeter) setUserLevel(userMeter());
+    //   rafRef.current = requestAnimationFrame(tick);
+    // };
+    // rafRef.current = requestAnimationFrame(tick);
+
+    return userMeter;
+  };
+
+  const playInitialQuestionAudio = async (
+    interviewId: string,
+    messageId: string,
+    audioRef: RefObject<HTMLAudioElement | null>,
+  ) => {
+    const response = await axios.get(
+      `${BACKEND_URL}/api/v1/session/${interviewId}/messages/${messageId}/audio`,
+      {
+        responseType: "blob",
+      },
+    );
+
+    setStatus("live");
+
+    console.log("response audio", response);
+
+    const url = URL.createObjectURL(response.data);
+    audioRef.current!.src = url;
+    await audioRef.current!.play();
+  };
 
   useEffect(() => {
     let cancelled = false;
+    const initiateInterviewContext = async () => {
+      console.log("location state", location.state.initialmessageId);
 
-    (async () => {
-      // const pc = new RTCPeerConnection();
-      // pcRef.current = pc;
-
+      // Create audio context
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
-      let aiMeter: (() => number) | null = null;
-      let userMeter: (() => number) | null = null;
 
-      // Play + meter the AI's audio.
-      const audioEl = document.createElement("audio");
-      audioEl.autoplay = true;
-      // pc.ontrack = (e) => {
-      //   const stream = e.streams[0]!;
-      //   audioEl.srcObject = stream;
-      //   aiMeter = createLevelMeter(audioCtx, stream);
-      // };
+      // Create audio element
+      const audio = new Audio();
+      audio.autoplay = true;
+      audioRef.current = audio;
 
-      // Capture the user's microphone.
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (cancelled) {
-        ms.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      userStreamRef.current = ms;
-      userMeter = createLevelMeter(audioCtx, ms);
+      // let aiMeter: (() => number) | null = null;
+      // let userMeter: (() => number) | null = null;
 
-      // Fetch the deepgram token from be
-      const interviewToken = sessionStorage.getItem("interviewToken");
-      const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token`, {
-        headers: {
-          Authorization: `Bearer ${interviewToken}`,
-        },
-      });
+      const aiSource = audioCtx.createMediaElementSource(audio);
+      const aiMeter = createLevelMeter2(aiSource, true);
+      const userMeter = await setupUserContext(audioCtx, cancelled);
 
-      console.log("data", data);
-
-      // Stream the mic to Deepgram for live transcription.
-      const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
-        "Bearer",
-        `${data.access_token}`,
-      ]);
-      socketRef.current = socket;
-
-      socket.onopen = () => {
-        const mediaRecorder = new MediaRecorder(ms, { mimeType: "audio/webm" });
-        recorderRef.current = mediaRecorder;
-        mediaRecorder.start(500);
-        mediaRecorder.addEventListener("dataavailable", (event) => {
-          if (socket.readyState === WebSocket.OPEN) socket.send(event.data);
-        });
-      };
-
-      let buffer = "";
-      let silenceTimer: ReturnType<typeof setTimeout>;
-
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        const transcript = data.channel?.alternatives?.[0]?.transcript?.trim();
-
-        if (!transcript) return;
-
-        buffer += " " + transcript;
-
-        clearTimeout(silenceTimer);
-
-        silenceTimer = setTimeout(async () => {
-          console.log('sending trans to backned',buffer)
-          const res = await axios.post(`${BACKEND_URL}/api/v1/session/${interviewId}/message`, {
-            message: buffer.trim(),
-          });
-
-          buffer = "";
-        }, 1500);
-      };
-
-      socket.onerror = (event) => {
-        console.error("error", event);
-      };
-
-      // pc.addTrack(ms.getTracks()[0]!);
-
-      // SDP handshake with the backend.
-      // const offer = await pc.createOffer();
-      // await pc.setLocalDescription(offer);
-      // const sdpResponse = await fetch(
-      //   `${BACKEND_URL}/api/v1/session/${interviewId}`,
-      //   {
-      //     method: "POST",
-      //     body: offer.sdp,
-      //     headers: { "Content-Type": "application/sdp" },
-      //   },
-      // );
-      // const answer = { type: "answer" as const, sdp: await sdpResponse.text() };
-      // await pc.setRemoteDescription(answer);
-
-      if (cancelled) return;
-      setStatus("live");
+      playInitialQuestionAudio(
+        interviewId!,
+        location.state.initialmessageId,
+        audioRef,
+      );
 
       // Single animation loop drives both volume meters.
       const tick = () => {
-        // if (aiMeter) setAiLevel(aiMeter());
+        if (aiMeter) setAiLevel(aiMeter());
         if (userMeter) setUserLevel(userMeter());
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
-    })();
+    };
+
+    initiateInterviewContext();
 
     return () => {
       cancelled = true;

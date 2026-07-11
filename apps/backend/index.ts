@@ -8,11 +8,16 @@ import { initSideband } from "./sideband";
 import { calculateResult } from "./result";
 import { deepgramApiKey, jwtSecret } from "./config";
 import axios from "axios";
+import OpenAI from "openai";
+import { buildInterviewPrompt } from "./prompt";
+import { generateSpeechFromText } from "./services/ttsService";
 
 const port = process.env.PORT;
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+const client = new OpenAI();
 
 // Parse raw SDP payloads posted from the browser
 app.use(express.text({ type: ["application/sdp", "text/plain"] }));
@@ -94,6 +99,23 @@ app.post("/api/v1/pre-interview", async (req, res) => {
     },
   });
 
+  const prompt = buildInterviewPrompt(JSON.stringify(githubData));
+
+  //Send candidate data to LLM
+  const response = await client.responses.create({
+    model: "gpt-5.4-nano",
+    input: prompt,
+  });
+
+  // Save initial question to db
+  const message = await prisma.message.create({
+    data: {
+      message: response.output_text,
+      type: "ASSISTANT",
+      interviewId: interview.id,
+    },
+  });
+
   const accessToken = jwt.sign(
     {
       interviewId: interview.id,
@@ -106,48 +128,76 @@ app.post("/api/v1/pre-interview", async (req, res) => {
 
   res.status(200).json({
     id: interview.id,
+    messageId: message.id,
     accessToken,
   });
 });
 
 app.post("/api/v1/session/:interviewId", async (req, res) => {
-  const sessionConfig = JSON.stringify({
-    type: "realtime",
-    model: "gpt-realtime-2",
-    audio: { output: { voice: "marin" } },
-  });
-
-  const fd = new FormData();
-  fd.set("sdp", req.body);
-  fd.set("session", sessionConfig);
-
   try {
-    const sdpResponse = await fetch(
-      "https://api.openai.com/v1/realtime/calls",
+    const text = req.body.text;
+
+    //Generate audio url from the response
+    const audio = await axios.post(
+      "https://api.deepgram.com/v1/speak?model=aura-2-electra-en",
       {
-        method: "POST",
+        text,
+      },
+      {
+        responseType: "arraybuffer",
         headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-          "OpenAI-Safety-Identifier": "hashed-user-id",
+          Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+          "Content-Type": "application/json",
         },
-        body: fd,
       },
     );
 
-    // Location: /v1/realtime/calls/rtc_123456
-    const location = sdpResponse.headers.get("Location");
-    const callId = location?.split("/").pop();
-    console.log(callId);
-
-    // Send back the SDP we received from the OpenAI REST API
-    const sdp = await sdpResponse.text();
-    res.send(sdp);
-    initSideband(callId!, req.params.interviewId);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(audio.data);
   } catch (error) {
     console.error("Token generation error:", error);
     res.status(500).json({ error: "Failed to generate token" });
   }
 });
+
+// app.post("/api/v1/session/:interviewId", async (req, res) => {
+//   const sessionConfig = JSON.stringify({
+//     type: "realtime",
+//     model: "gpt-realtime-2",
+//     audio: { output: { voice: "marin" } },
+//   });
+
+//   const fd = new FormData();
+//   fd.set("sdp", req.body);
+//   fd.set("session", sessionConfig);
+
+//   try {
+//     const sdpResponse = await fetch(
+//       "https://api.openai.com/v1/realtime/calls",
+//       {
+//         method: "POST",
+//         headers: {
+//           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+//           "OpenAI-Safety-Identifier": "hashed-user-id",
+//         },
+//         body: fd,
+//       },
+//     );
+
+//     // Location: /v1/realtime/calls/rtc_123456
+//     const location = sdpResponse.headers.get("Location");
+//     const callId = location?.split("/").pop();
+//     console.log(callId);
+
+//     // Send back the SDP we received from the OpenAI REST API
+//     const sdp = await sdpResponse.text();
+//     res.send(sdp);
+//     initSideband(callId!, req.params.interviewId);
+//   } catch (error) {
+//     console.error("Token generation error:", error);
+//     res.status(500).json({ error: "Failed to generate token" });
+//   }
+// });
 
 app.post("/api/v1/session/:interviewId/message", async (req, res) => {
   const interviewId = req.params.interviewId;
@@ -166,6 +216,37 @@ app.post("/api/v1/session/:interviewId/message", async (req, res) => {
 
   res.json({ message: "Message sent" });
 });
+
+app.get(
+  "/api/v1/session/:interviewId/messages/:messageId/audio",
+  async (req, res) => {
+    const messageId = req.params.messageId;
+    const interviewId = req.params.interviewId;
+
+    const message = await prisma.message.findFirst({
+      where: {
+        id: messageId,
+        interviewId,
+        type: "ASSISTANT",
+      },
+    });
+
+    if (!message) {
+      res.status(404).json({
+        message: "Message not found",
+      });
+      return;
+    }
+
+    // Generate the TTS
+    const audio = await generateSpeechFromText(message.message);
+
+    console.log('sending audio')
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(audio.data);
+  },
+);
 
 app.get("/api/v1/result/:interviewId", async (req, res) => {
   const interviewId = req.params.interviewId;
