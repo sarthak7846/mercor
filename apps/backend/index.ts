@@ -1,16 +1,16 @@
 import express, { type Request } from "express";
 import jwt from "jsonwebtoken";
-import { PreInterviewBody } from "./types";
+import { candidateProfileSchema, PreInterviewBody } from "./types";
 import { scrapeGithub } from "./scrapers/github";
 import cors from "cors";
 import { prisma } from "./db";
-import { initSideband } from "./sideband";
 import { calculateResult } from "./result";
 import { deepgramApiKey, jwtSecret } from "./config";
 import axios from "axios";
 import OpenAI from "openai";
-import { buildInterviewPrompt } from "./prompt";
+import { buildCandidateProfilePrompt, } from "./prompt";
 import { generateSpeechFromText } from "./services/ttsService";
+import { zodTextFormat } from "openai/helpers/zod.mjs";
 
 const port = process.env.PORT;
 const app = express();
@@ -99,22 +99,27 @@ app.post("/api/v1/pre-interview", async (req, res) => {
     },
   });
 
-  const prompt = buildInterviewPrompt(JSON.stringify(githubData));
+  const prompt = buildCandidateProfilePrompt(JSON.stringify(githubData));
 
   //Send candidate data to LLM
-  const response = await client.responses.create({
+  const response = await client.responses.parse({
     model: "gpt-5.4-nano",
     input: prompt,
+    text: {
+      format: zodTextFormat(candidateProfileSchema, 'candidate_profile')
+    }
   });
 
+  const candidateProfileData = response.output_parsed;
+
   // Save initial question to db
-  const message = await prisma.message.create({
-    data: {
-      message: response.output_text,
-      type: "ASSISTANT",
-      interviewId: interview.id,
-    },
-  });
+  // const message = await prisma.message.create({
+  //   data: {
+  //     message: response.output_text,
+  //     type: "ASSISTANT",
+  //     interviewId: interview.id,
+  //   },
+  // });
 
   const accessToken = jwt.sign(
     {
@@ -128,8 +133,9 @@ app.post("/api/v1/pre-interview", async (req, res) => {
 
   res.status(200).json({
     id: interview.id,
-    messageId: message.id,
+    // messageId: message.id,
     accessToken,
+    llmResponse: candidateProfileData
   });
 });
 
