@@ -1,6 +1,11 @@
 import express, { type Request } from "express";
 import jwt from "jsonwebtoken";
-import { candidateProfileSchema, PreInterviewBody } from "./types";
+import {
+  candidateProfileSchema,
+  interviewTurnSchema,
+  PreInterviewBody,
+  type InterviewMemory,
+} from "./types";
 import { scrapeGithub } from "./scrapers/github";
 import cors from "cors";
 import { prisma } from "./db";
@@ -8,9 +13,13 @@ import { calculateResult } from "./result";
 import { deepgramApiKey, jwtSecret } from "./config";
 import axios from "axios";
 import OpenAI from "openai";
-import { buildCandidateProfilePrompt, } from "./prompt";
+import {
+  buildCandidateProfilePrompt,
+  buildInterviewConversationPrompt,
+} from "./prompt";
 import { generateSpeechFromText } from "./services/ttsService";
 import { zodTextFormat } from "openai/helpers/zod.mjs";
+import type { Prisma } from "./generated/prisma/client";
 
 const port = process.env.PORT;
 const app = express();
@@ -92,13 +101,6 @@ app.post("/api/v1/pre-interview", async (req, res) => {
 
   const githubData = await scrapeGithub(githubUsername);
 
-  const interview = await prisma.interview.create({
-    data: {
-      githubMetadata: JSON.stringify(githubData),
-      status: "PRE",
-    },
-  });
-
   const prompt = buildCandidateProfilePrompt(JSON.stringify(githubData));
 
   //Send candidate data to LLM
@@ -106,20 +108,41 @@ app.post("/api/v1/pre-interview", async (req, res) => {
     model: "gpt-5.4-nano",
     input: prompt,
     text: {
-      format: zodTextFormat(candidateProfileSchema, 'candidate_profile')
-    }
+      format: zodTextFormat(candidateProfileSchema, "candidate_profile"),
+    },
   });
 
-  const candidateProfileData = response.output_parsed;
+  const candidateProfile = response.output_parsed;
+  const interviewMemory: InterviewMemory = {
+    stage: "introduction",
+    difficulty: "easy",
+    questionsAsked: 0,
+    currentTopic: "Introduction",
+    remainingTopics: ["React", "Node.js", "Redis", "Behavioral"],
+    followUps: [],
+    observedStrengths: [],
+    observedWeaknesses: [],
+    interviewerNotes: [],
+  };
+
+  // Save candidate profile and initial interview memory structure to db
+  const interview = await prisma.interview.create({
+    data: {
+      githubMetadata: JSON.stringify(githubData),
+      status: "PRE",
+      candidateProfile: candidateProfile as Prisma.InputJsonValue,
+      interviewMemory,
+    },
+  });
 
   // Save initial question to db
-  // const message = await prisma.message.create({
-  //   data: {
-  //     message: response.output_text,
-  //     type: "ASSISTANT",
-  //     interviewId: interview.id,
-  //   },
-  // });
+  const message = await prisma.message.create({
+    data: {
+      message: candidateProfile?.openingMessage ?? "",
+      type: "ASSISTANT",
+      interviewId: interview.id,
+    },
+  });
 
   const accessToken = jwt.sign(
     {
@@ -133,9 +156,9 @@ app.post("/api/v1/pre-interview", async (req, res) => {
 
   res.status(200).json({
     id: interview.id,
-    // messageId: message.id,
+    messageId: message.id,
     accessToken,
-    llmResponse: candidateProfileData
+    llmResponse: candidateProfile,
   });
 });
 
@@ -209,18 +232,76 @@ app.post("/api/v1/session/:interviewId/message", async (req, res) => {
   const interviewId = req.params.interviewId;
   const message = req.body.message;
 
-  // Save message to db
-  // Send message to GPT and get response then convert TTS send the audio url back to fe
+  const interview = await prisma.interview.findUniqueOrThrow({
+    where: {
+      id: interviewId,
+    },
+  });
 
-  // await prisma.message.create({
-  //   data: {
-  //     message,
-  //     type: "USER",
-  //     interviewId,
-  //   },
-  // });
+  const messages = await prisma.message.findMany({
+    where: {
+      interviewId: interview.id,
+    },
+    take: 5,
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
 
-  res.json({ message: "Message sent" });
+  const candidateProfile = interview.candidateProfile;
+  const interviewMemory = interview.interviewMemory;
+
+  const prompt = buildInterviewConversationPrompt(
+    JSON.stringify(candidateProfile),
+    JSON.stringify(interviewMemory),
+    JSON.stringify(messages),
+  );
+
+  const response = await client.responses.parse({
+    model: "gpt-5.4-nano",
+    input: prompt,
+    text: {
+      format: zodTextFormat(interviewTurnSchema, "interview_turn"),
+    },
+  });
+
+  const assistantMessage = response.output_parsed?.assistantMessage;
+  const updatedMemory = response.output_parsed?.interviewMemory;
+
+  await Promise.all([
+    prisma.interview.update({
+      where: {
+        id: interviewId,
+      },
+      data: {
+        interviewMemory: updatedMemory,
+      },
+    }),
+    prisma.message.createMany({
+      data: [
+        {
+          interviewId,
+          message,
+          type: "USER",
+        },
+        {
+          interviewId,
+          message: assistantMessage ?? "Assistant message not found",
+          type: "ASSISTANT",
+        },
+      ],
+    }),
+  ]);
+
+  // Generate the TTS
+  const audio = await generateSpeechFromText(
+    assistantMessage ?? "Oops! Something went wrong",
+  );
+
+  console.log("sending assistant audio");
+
+  res.setHeader("Content-Type", "audio/mpeg");
+  res.send(audio.data);
 });
 
 app.get(
@@ -247,7 +328,7 @@ app.get(
     // Generate the TTS
     const audio = await generateSpeechFromText(message.message);
 
-    console.log('sending audio')
+    console.log("sending audio");
 
     res.setHeader("Content-Type", "audio/mpeg");
     res.send(audio.data);

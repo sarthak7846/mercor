@@ -10,6 +10,11 @@ const projectSchema = z.object({
   technologies: z.string(),
 });
 
+const followUpsSchema = z.object({
+  topic: z.string(),
+  reason: z.string(),
+});
+
 export const candidateProfileSchema = z.object({
   githubUrl: z.string(),
   githubSummary: z.string(),
@@ -19,3 +24,23 @@ export const candidateProfileSchema = z.object({
   projects: z.array(projectSchema),
   openingMessage: z.string(),
 });
+
+export const interviewMemorySchema = z.object({
+  stage: z.enum(["introduction", "technical", "behavioral", "closing"]),
+  difficulty: z.enum(["easy", "medium", "hard"]),
+  questionsAsked: z.number(),
+  currentTopic: z.string().nullable(),
+  remainingTopics: z.array(z.string()),
+  followUps: z.array(followUpsSchema),
+  observedStrengths: z.array(z.string()),
+  observedWeaknesses: z.array(z.string()),
+  interviewerNotes: z.array(z.string()),
+});
+
+export const interviewTurnSchema = z.object({
+  assistantMessage: z.string(),
+  interviewMemory: interviewMemorySchema,
+});
+
+export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
+export type InterviewMemory = z.infer<typeof interviewMemorySchema>;

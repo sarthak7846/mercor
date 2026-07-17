@@ -37,7 +37,7 @@ function createLevelMeter2(source: AudioNode, playAudio: boolean) {
   analyser.smoothingTimeConstant = 0.8;
 
   source.connect(analyser);
-  if(playAudio) analyser.connect(source.context.destination);
+  if (playAudio) analyser.connect(source.context.destination);
 
   const data = new Uint8Array(analyser.fftSize);
 
@@ -126,7 +126,9 @@ export function Interview() {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      const mediaRecorder = new MediaRecorder(userStream, { mimeType: "audio/webm" });
+      const mediaRecorder = new MediaRecorder(userStream, {
+        mimeType: "audio/webm",
+      });
       recorderRef.current = mediaRecorder;
       mediaRecorder.start(500);
       mediaRecorder.addEventListener("dataavailable", (event) => {
@@ -155,7 +157,14 @@ export function Interview() {
           {
             message: buffer.trim(),
           },
+          {
+            responseType: "blob",
+          },
         );
+        console.log("response audio from be", res);
+        const url = URL.createObjectURL(res.data);
+        audioRef.current!.src = url;
+        await audioRef.current!.play();
 
         buffer = "";
       }, 1500);

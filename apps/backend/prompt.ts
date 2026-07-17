@@ -12,6 +12,39 @@ Rules:
 `;
 };
 
+export const buildInterviewConversationPrompt = (
+  candidateProfile: string,
+  interviewMemory: string,
+  messages: string,
+) => {
+  return `
+      You are an experienced software engineering interviewer.
+
+      Your job is to conduct a structured interview.
+
+      Candidate Profile
+
+      ${candidateProfile}
+
+      Current Interview State
+
+      ${interviewMemory}
+
+      Recent Conversation
+
+      ${messages}
+
+      Rules
+
+      - Ask only ONE question.
+      - Keep replies under 40 words.
+      - Progress naturally.
+      - If the candidate answer is weak, ask a follow-up.
+      - If the topic is complete, move to nextTopic.
+      - Update the interview memory.
+      - Return JSON only.`
+};
+
 // export const buildInterviewPrompt = (githubMetadata: string) => {
 //   return `
 // You are a Senior Software Engineer conducting a technical interview.

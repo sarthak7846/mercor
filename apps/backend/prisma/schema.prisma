@@ -8,12 +8,14 @@ datasource db {
 }
 
 model Interview {
-  id             String          @id @default(uuid())
-  githubMetadata Json
-  status         InterviewStatus
-  score          Int             @default(0)
-  conversations  Message[]
-  feedback       String?
+  id               String          @id @default(uuid())
+  githubMetadata   Json
+  status           InterviewStatus
+  score            Int             @default(0)
+  conversations    Message[]
+  feedback         String?
+  candidateProfile Json
+  interviewMemory  Json
 }
 
 model Message {
@@ -21,7 +23,7 @@ model Message {
   message     String
   type        ConversationType
   interviewId String
-  interview   Interview        @relation(fields: [interviewId], references: [id])
+  interview   Interview        @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   createdAt   DateTime         @default(now())
 }
 
