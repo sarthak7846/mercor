@@ -6,7 +6,8 @@ Given this candidate information analyze and return the candidate profile data b
 - Github Summary: ${githubMetadata}
 
 Rules:
-- For the opening message just welcome the candidate (no thanks for sharing things) straight away ask for introduction. 
+- For the opening message just welcome the candidate (no thanks for sharing things) straight away ask for introduction.
+- Keep the opening message under 20 words.
 - Infer interview type.
 - Return the data in valid JSON strictly matching the schema.
 `;
@@ -37,31 +38,59 @@ export const buildInterviewConversationPrompt = (
       Rules
 
       - Ask only ONE question.
-      - Keep replies under 40 words.
+      - Keep replies under 20 words.
       - Progress naturally.
       - If the candidate answer is weak, ask a follow-up.
       - If the topic is complete, move to nextTopic.
+      - You should also update the observedWeakness and observedStrengths based on the interview memory and recent conversation messages.
       - Update the interview memory.
-      - Return JSON only.`
+      - Return JSON only.`;
 };
 
-// export const buildInterviewPrompt = (githubMetadata: string) => {
-//   return `
-// You are a Senior Software Engineer conducting a technical interview.
+export const buildInterviewResultPrompt = (
+  candidateProfile: string,
+  interviewMemory: string,
+) => {
+  return `
+    You are an experienced technical interviewer.
 
-// Given this candidate information create the candidate profile data
-// - Github Summary: ${githubMetadata}
-// - Skills: React, Node.js, Java...
+    Evaluate the candidate based on:
 
-// Rules:
-// - Ask one question at a time.
-// - Never ask multiple questions together.
-// - Ask follow-up questions based on the candidate's previous answer.
-// - If the answer is weak, probe deeper.
-// - If the answer is good, move to a harder topic.
-// - Keep responses under 3 sentences because they will be converted to speech.
-// - Start with asking for introduction as the first question.
-// - Infer interview type.
-// - Return the data in JSON strictly matching the schema
-// `;
-// };
+    technical knowledge
+    correctness of answers
+    communication
+    problem-solving ability
+    confidence
+
+    Use the candidate profile and the interview memory below to determine the expected level of the candidate. Do not compare a junior engineer to a senior engineer.
+
+    Return only valid JSON in the following format:
+    {
+        "score": 8.3,
+        "feedback": "One concise paragraph explaining the score.",
+        "strengths": [
+            "...",
+            "...",
+            "..."
+        ],
+        "improvements": [
+            "...",
+            "...",
+            "..."
+        ]
+    }
+
+    Scoring guidelines:
+
+    9–10: Outstanding. Hire immediately.
+    8–8.9: Strong candidate.
+    7–7.9: Good candidate with minor gaps.
+    6–6.9: Average. Significant improvement needed.
+    Below 6: Not ready for this role.
+
+    The score should be a decimal between 0 and 10.
+
+    ${candidateProfile}
+    ${interviewMemory}
+`;
+};

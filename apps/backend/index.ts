@@ -2,6 +2,7 @@ import express, { type Request } from "express";
 import jwt from "jsonwebtoken";
 import {
   candidateProfileSchema,
+  interviewResultSchema,
   interviewTurnSchema,
   PreInterviewBody,
   type InterviewMemory,
@@ -9,13 +10,13 @@ import {
 import { scrapeGithub } from "./scrapers/github";
 import cors from "cors";
 import { prisma } from "./db";
-import { calculateResult } from "./result";
 import { deepgramApiKey, jwtSecret } from "./config";
 import axios from "axios";
 import OpenAI from "openai";
 import {
   buildCandidateProfilePrompt,
   buildInterviewConversationPrompt,
+  buildInterviewResultPrompt,
 } from "./prompt";
 import { generateSpeechFromText } from "./services/ttsService";
 import { zodTextFormat } from "openai/helpers/zod.mjs";
@@ -341,9 +342,6 @@ app.get("/api/v1/result/:interviewId", async (req, res) => {
     where: {
       id: interviewId,
     },
-    include: {
-      conversations: true,
-    },
   });
 
   if (!interview) {
@@ -353,30 +351,44 @@ app.get("/api/v1/result/:interviewId", async (req, res) => {
     return;
   }
 
-  res.json({
-    score: interview?.score,
-    feedback: interview?.feedback,
-    transcript: interview?.conversations.map((c) => ({
-      type: c.type,
-      content: c.message,
-      createdAt: c.createdAt,
-    })),
-    status: interview.status,
+  const candidateProfile = JSON.stringify(interview.candidateProfile);
+  const interviewMemory = JSON.stringify(interview.interviewMemory);
+
+  const prompt = buildInterviewResultPrompt(candidateProfile, interviewMemory);
+
+  const response = await client.responses.parse({
+    model: "gpt-5.4-nano",
+    input: prompt,
+    text: {
+      format: zodTextFormat(interviewResultSchema, "interview_result"),
+    },
   });
 
-  if (interview.status !== "DONE") {
-    const result = await calculateResult(interview.conversations);
-    await prisma.interview.update({
-      where: {
-        id: interviewId,
-      },
-      data: {
-        status: "DONE",
-        feedback: result.feedback,
-        score: result.score,
-      },
-    });
-  }
+  const score = response.output_parsed?.score;
+  const feedback = response.output_parsed?.feedback;
+  const improvements = response.output_parsed?.improvements;
+  const strengths = response.output_parsed?.strengths;
+
+  await prisma.interview.update({
+    where: {
+      id: interviewId,
+    },
+    data: {
+      status: "DONE",
+      feedback,
+      score,
+    },
+  });
+
+  res.status(200).json({
+    data: {
+      score,
+      feedback,
+      improvements,
+      strengths,
+    },
+  });
+  // }
 });
 
 app.listen(port, () => {

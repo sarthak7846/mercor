@@ -73,6 +73,8 @@ export function Interview() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const aiRespondingRef = useRef(false);
+  const isAiSpeakingRef = useRef(false);
 
   const setupUserContext = async (
     audioCtx: AudioContext,
@@ -95,84 +97,115 @@ export function Interview() {
     //   aiMeter = createLevelMeter(audioCtx, stream);
     // };
 
-    // Capture the user's microphone.
-    const userStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-    });
-    const userSource = audioCtx.createMediaStreamSource(userStream);
-    const userMeter = createLevelMeter2(userSource, false);
-    if (cancelled) {
-      userStream.getTracks().forEach((t) => t.stop());
+    try {
+      // Capture the user's microphone.
+      const userStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      const userSource = audioCtx.createMediaStreamSource(userStream);
+      const userMeter = createLevelMeter2(userSource, false);
+      if (cancelled) {
+        userStream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      userStreamRef.current = userStream;
+      // userMeter = createLevelMeter(audioCtx, userStream);
+
+      // Fetch the deepgram token from be
+      const interviewToken = sessionStorage.getItem("interviewToken");
+      const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token`, {
+        headers: {
+          Authorization: `Bearer ${interviewToken}`,
+        },
+      });
+
+      console.log("data", data);
+
+      // Stream the mic to Deepgram for live transcription.
+      const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
+        "Bearer",
+        `${data.access_token}`,
+      ]);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        const mediaRecorder = new MediaRecorder(userStream, {
+          mimeType: "audio/webm",
+        });
+        recorderRef.current = mediaRecorder;
+        mediaRecorder.start(500);
+        mediaRecorder.addEventListener("dataavailable", (event) => {
+          if (socket.readyState === WebSocket.OPEN) socket.send(event.data);
+        });
+      };
+
+      let buffer = "";
+
+      socket.onmessage = async (event) => {
+        if (isAiSpeakingRef.current) {
+          console.log("ai voice playing");
+
+          return;
+        }
+
+        const data = JSON.parse(event.data);
+        const transcript = data.channel?.alternatives?.[0]?.transcript?.trim();
+
+        if (!transcript) return;
+        console.log("is final", data, aiRespondingRef);
+
+        if (data.is_final) buffer += " " + transcript;
+        if (data.speech_final) {
+          if (aiRespondingRef.current) {
+            console.log("ai response isn't complete yet");
+            return;
+          }
+
+          aiRespondingRef.current = true;
+
+          try {
+            console.log("sending trans to backned", buffer);
+            const message = buffer.trim();
+            buffer = "";
+            const res = await axios.post(
+              `${BACKEND_URL}/api/v1/session/${interviewId}/message`,
+              {
+                message,
+              },
+              {
+                responseType: "blob",
+              },
+            );
+            console.log("response audio from be", res);
+            const url = URL.createObjectURL(res.data);
+            audioRef.current!.src = url;
+
+            isAiSpeakingRef.current = true;
+
+            await audioRef.current!.play();
+          } finally {
+            aiRespondingRef.current = false;
+          }
+        }
+      };
+
+      socket.onerror = (event) => {
+        console.error("error", event);
+      };
+
+      return userMeter;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        alert("Microphone permission is required to start the interview");
+        navigate("/");
+        return;
+      }
+
+      console.error(error);
+      alert("Failed to initialize interview");
+      navigate("/");
       return;
     }
-    userStreamRef.current = userStream;
-    // userMeter = createLevelMeter(audioCtx, userStream);
-
-    // Fetch the deepgram token from be
-    const interviewToken = sessionStorage.getItem("interviewToken");
-    const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token`, {
-      headers: {
-        Authorization: `Bearer ${interviewToken}`,
-      },
-    });
-
-    console.log("data", data);
-
-    // Stream the mic to Deepgram for live transcription.
-    const socket = new WebSocket("wss://api.deepgram.com/v1/listen", [
-      "Bearer",
-      `${data.access_token}`,
-    ]);
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      const mediaRecorder = new MediaRecorder(userStream, {
-        mimeType: "audio/webm",
-      });
-      recorderRef.current = mediaRecorder;
-      mediaRecorder.start(500);
-      mediaRecorder.addEventListener("dataavailable", (event) => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(event.data);
-      });
-    };
-
-    let buffer = "";
-    let silenceTimer: ReturnType<typeof setTimeout>;
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      const transcript = data.channel?.alternatives?.[0]?.transcript?.trim();
-
-      if (!transcript) return;
-
-      buffer += " " + transcript;
-
-      clearTimeout(silenceTimer);
-
-      silenceTimer = setTimeout(async () => {
-        console.log("sending trans to backned", buffer);
-        const res = await axios.post(
-          `${BACKEND_URL}/api/v1/session/${interviewId}/message`,
-          {
-            message: buffer.trim(),
-          },
-          {
-            responseType: "blob",
-          },
-        );
-        console.log("response audio from be", res);
-        const url = URL.createObjectURL(res.data);
-        audioRef.current!.src = url;
-        await audioRef.current!.play();
-
-        buffer = "";
-      }, 1500);
-    };
-
-    socket.onerror = (event) => {
-      console.error("error", event);
-    };
 
     // pc.addTrack(ms.getTracks()[0]!);
 
@@ -200,8 +233,6 @@ export function Interview() {
     //   rafRef.current = requestAnimationFrame(tick);
     // };
     // rafRef.current = requestAnimationFrame(tick);
-
-    return userMeter;
   };
 
   const playInitialQuestionAudio = async (
@@ -238,6 +269,11 @@ export function Interview() {
       const audio = new Audio();
       audio.autoplay = true;
       audioRef.current = audio;
+
+      audioRef.current.onended = () => {
+        isAiSpeakingRef.current = false;
+        URL.revokeObjectURL(audioRef.current!.src);
+      };
 
       // let aiMeter: (() => number) | null = null;
       // let userMeter: (() => number) | null = null;

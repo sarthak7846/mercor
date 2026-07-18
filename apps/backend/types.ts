@@ -44,3 +44,10 @@ export const interviewTurnSchema = z.object({
 
 export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 export type InterviewMemory = z.infer<typeof interviewMemorySchema>;
+
+export const interviewResultSchema = z.object({
+  feedback: z.string().describe("Feedback for the user"),
+  score: z.int().describe("Score out of 10 for their interview"),
+  strengths: z.array(z.string()),
+  improvements: z.array(z.string()),
+});
