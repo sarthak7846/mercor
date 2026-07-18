@@ -33,7 +33,7 @@ export function Result() {
       axios
         .get(`${BACKEND_URL}/api/v1/result/${interviewId}`)
         .then((response) => {
-          setResult(response.data.data);
+          setResult(response.data);
           //   return response.data.status as ResultData["status"];
         })
         .finally(() => {

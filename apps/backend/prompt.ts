@@ -31,19 +31,24 @@ export const buildInterviewConversationPrompt = (
 
       ${interviewMemory}
 
-      Recent Conversation
+      Recent Conversation 5 messages
 
       ${messages}
 
       Rules
 
-      - Ask only ONE question.
+      - Ask the next question based on this conversation, also keeping the candidate profile and interview memory in context.
       - Keep replies under 20 words.
       - Progress naturally.
       - If the candidate answer is weak, ask a follow-up.
       - If the topic is complete, move to nextTopic.
       - You should also update the observedWeakness and observedStrengths based on the interview memory and recent conversation messages.
-      - Update the interview memory.
+        When returning the updated interview memory:
+        - Increase questionsAsked by 1.
+        - Update currentTopic if the current topic is complete.
+        - Remove completed topics from remainingTopics.
+        - Update stage when appropriate.
+        - Update observedStrengths and observedWeaknesses only when there is enough evidence.
       - Return JSON only.`;
 };
 

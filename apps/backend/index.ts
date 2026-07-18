@@ -123,7 +123,10 @@ app.post("/api/v1/pre-interview", async (req, res) => {
     followUps: [],
     observedStrengths: [],
     observedWeaknesses: [],
+    completedTopics: [],
     interviewerNotes: [],
+    topicQuestionCount: 0,
+    totalQuestionsAsked: 0,
   };
 
   // Save candidate profile and initial interview memory structure to db
@@ -190,45 +193,6 @@ app.post("/api/v1/session/:interviewId", async (req, res) => {
   }
 });
 
-// app.post("/api/v1/session/:interviewId", async (req, res) => {
-//   const sessionConfig = JSON.stringify({
-//     type: "realtime",
-//     model: "gpt-realtime-2",
-//     audio: { output: { voice: "marin" } },
-//   });
-
-//   const fd = new FormData();
-//   fd.set("sdp", req.body);
-//   fd.set("session", sessionConfig);
-
-//   try {
-//     const sdpResponse = await fetch(
-//       "https://api.openai.com/v1/realtime/calls",
-//       {
-//         method: "POST",
-//         headers: {
-//           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-//           "OpenAI-Safety-Identifier": "hashed-user-id",
-//         },
-//         body: fd,
-//       },
-//     );
-
-//     // Location: /v1/realtime/calls/rtc_123456
-//     const location = sdpResponse.headers.get("Location");
-//     const callId = location?.split("/").pop();
-//     console.log(callId);
-
-//     // Send back the SDP we received from the OpenAI REST API
-//     const sdp = await sdpResponse.text();
-//     res.send(sdp);
-//     initSideband(callId!, req.params.interviewId);
-//   } catch (error) {
-//     console.error("Token generation error:", error);
-//     res.status(500).json({ error: "Failed to generate token" });
-//   }
-// });
-
 app.post("/api/v1/session/:interviewId/message", async (req, res) => {
   const interviewId = req.params.interviewId;
   const message = req.body.message;
@@ -249,6 +213,8 @@ app.post("/api/v1/session/:interviewId/message", async (req, res) => {
     },
   });
 
+
+
   const candidateProfile = interview.candidateProfile;
   const interviewMemory = interview.interviewMemory;
 
@@ -259,7 +225,7 @@ app.post("/api/v1/session/:interviewId/message", async (req, res) => {
   );
 
   const response = await client.responses.parse({
-    model: "gpt-5.4-nano",
+    model: "gpt-5.6-terra",
     input: prompt,
     text: {
       format: zodTextFormat(interviewTurnSchema, "interview_turn"),
@@ -351,6 +317,15 @@ app.get("/api/v1/result/:interviewId", async (req, res) => {
     return;
   }
 
+  if (interview.status === "DONE") {
+    res.status(200).json({
+      score: interview.score,
+      feedback: interview.feedback,
+      improvements: interview.candidateImprovements,
+      strengths: interview.candidateStrengths,
+    });
+  }
+
   const candidateProfile = JSON.stringify(interview.candidateProfile);
   const interviewMemory = JSON.stringify(interview.interviewMemory);
 
@@ -377,19 +352,58 @@ app.get("/api/v1/result/:interviewId", async (req, res) => {
       status: "DONE",
       feedback,
       score,
+      candidateImprovements: improvements,
+      candidateStrengths: strengths,
     },
   });
 
   res.status(200).json({
-    data: {
-      score,
-      feedback,
-      improvements,
-      strengths,
-    },
+    score,
+    feedback,
+    improvements,
+    strengths,
   });
   // }
 });
+
+// app.post("/api/v1/session/:interviewId", async (req, res) => {
+//   const sessionConfig = JSON.stringify({
+//     type: "realtime",
+//     model: "gpt-realtime-2",
+//     audio: { output: { voice: "marin" } },
+//   });
+
+//   const fd = new FormData();
+//   fd.set("sdp", req.body);
+//   fd.set("session", sessionConfig);
+
+//   try {
+//     const sdpResponse = await fetch(
+//       "https://api.openai.com/v1/realtime/calls",
+//       {
+//         method: "POST",
+//         headers: {
+//           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+//           "OpenAI-Safety-Identifier": "hashed-user-id",
+//         },
+//         body: fd,
+//       },
+//     );
+
+//     // Location: /v1/realtime/calls/rtc_123456
+//     const location = sdpResponse.headers.get("Location");
+//     const callId = location?.split("/").pop();
+//     console.log(callId);
+
+//     // Send back the SDP we received from the OpenAI REST API
+//     const sdp = await sdpResponse.text();
+//     res.send(sdp);
+//     initSideband(callId!, req.params.interviewId);
+//   } catch (error) {
+//     console.error("Token generation error:", error);
+//     res.status(500).json({ error: "Failed to generate token" });
+//   }
+// });
 
 app.listen(port, () => {
   console.log(`Backend up on port ${port}`);

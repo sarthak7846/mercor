@@ -8,14 +8,16 @@ datasource db {
 }
 
 model Interview {
-  id               String          @id @default(uuid())
-  githubMetadata   Json
-  status           InterviewStatus
-  score            Int             @default(0)
-  conversations    Message[]
-  feedback         String?
-  candidateProfile Json
-  interviewMemory  Json
+  id                    String          @id @default(uuid())
+  githubMetadata        Json
+  status                InterviewStatus
+  score                 Int             @default(0)
+  conversations         Message[]
+  feedback              String?
+  candidateProfile      Json
+  interviewMemory       Json
+  candidateStrengths    String[]
+  candidateImprovements String[]
 }
 
 model Message {
