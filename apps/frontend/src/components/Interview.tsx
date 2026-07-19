@@ -113,7 +113,7 @@ export function Interview() {
 
       // Fetch the deepgram token from be
       const interviewToken = sessionStorage.getItem("interviewToken");
-      const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token`, {
+      const { data } = await axios.get(`${BACKEND_URL}/api/deepgram-token?model=nova-3`, {
         headers: {
           Authorization: `Bearer ${interviewToken}`,
         },
